@@ -1,14 +1,33 @@
 # Подсветка кухни: RGB-лента на Arduino + энкодер + ИК-пульт + Home Assistant
 
-**Симулятор:** https://j0k.github.io/Home_Lighting/ — схема, энкодер, пульт, Home Assistant и построчная трассировка кода.
-После правок прошивки или моста пересоберите его: `python sim/build.py` (пишет `docs/index.html`).
+**Симулятор:** https://juri-konoplev.pro/Home_Lighting/ ([EN](https://juri-konoplev.pro/Home_Lighting/?lang=en) · [FR](https://juri-konoplev.pro/Home_Lighting/?lang=fr)).
+Кухня с двойной мойкой, энкодер, ИК-пульт, Home Assistant, режим «Проводка», схема подключения
+и построчная трассировка кода прошивки и моста.
 
 ```
 firmware/rgb_strip/rgb_strip.ino   прошивка Arduino (лента, энкодер, ИК, EEPROM, serial)
 bridge/bridge.py                   мост serial <-> MQTT, сущность light в HA через Discovery
-sim/                               исходник симулятора (template.html) и сборка
-docs/index.html                    собранный симулятор для GitHub Pages
+docs/                              сайт симулятора (GitHub Pages раздаёт эту папку)
+  index.html, css/style.css
+  js/util.js, i18n.js              общие мелочи, переводы RU/EN/FR
+  js/firmware.js, bridge.js        порт прошивки и моста на JS
+  js/trace.js                      какие строки кода выполняются при каждом действии
+  js/schematic.js, scene.js        схема (SVG) и кухня (canvas)
+  js/controls.js, parts.js, main.js  ручки, пульт, HA, список компонентов, запуск
+  js/sources.js                    исходники .ino/.py для просмотра кода (генерируется)
+  preview.png                      превью для Telegram (генерируется)
+tools/                             сборка и проверка (Node 22+, Chrome или Edge)
 ```
+
+### Симулятор: сборка и проверка
+
+```bash
+node tools/build.mjs     # после правок firmware/ или bridge/: обновить docs/js/sources.js
+node tools/check.mjs     # прогнать сценарии в headless Chrome на трёх языках + скриншоты в tools/.out
+node tools/preview.mjs   # переснять docs/preview.png (страница в режиме ?shot=preview)
+```
+
+Страницу можно открыть и прямо с диска: `docs/index.html`.
 
 ## Детали
 
