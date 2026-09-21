@@ -1,5 +1,5 @@
-// Сцена кухни на canvas: шкафы, лента, фартук, две чаши-«вазы» с настенными смесителями,
-// круглые зеркала, вода,
+// Сцена кухни на canvas: шкафы по бокам, над мойкой открытая стена с большим круглым зеркалом
+// и RGB-ореолом вокруг него, две чаши-«вазы» с настенными смесителями, вода, духовка с индейкой,
 // режим «Проводка» (где идут кабели) и осциллограф на затворах.
 
 // Геометрия в долях ширины/высоты холста. DOM-ручки (энкодер, краны) ставятся по этим же числам.
@@ -7,10 +7,12 @@ const SC = {
   cabB: 0.34,              // низ верхних шкафов — тут приклеена лента
   topY: 0.68,              // задний край столешницы
   edgeY: 0.75,             // передняя кромка столешницы
+  cabs: [[0, 0.4], [0.78, 1]],   // верхние шкафы слева и справа; между ними открытая стена
   sinks: [0.5, 0.69],      // центры двух чаш
   bowlW: 0.13,             // ширина чаши-«вазы»
+  mirror: { x: 0.595, y: 0.27, r: 0.17 },  // общее зеркало: x — доля ширины, y и r — доли высоты
   knob: [0.88, 0.5],       // энкодер на фартуке (совпадает с CSS .knob.scene)
-  irX: 0.6,                // ИК-приёмник на кромке шкафа
+  irX: 0.36,               // ИК-приёмник на кромке левого шкафа
 };
 const scene = {
   wires: false,
@@ -27,7 +29,6 @@ function faucetGeom(i, W, H) {
     bodyTop: 0.49 * H, bodyBot: 0.525 * H,        // корпус смесителя на стене
     ex: sx - 0.004 * W, ey: 0.548 * H,            // конец излива над центром чаши
     hx: bodyX, hy: 0.476 * H,                     // рычаг сверху корпуса (DOM-ручка)
-    mirror: { x: sx, y: 0.428 * H, r: 0.056 * H }, // круглое зеркало над чашей
   };
 }
 // Где на сцене стоят DOM-ручки кранов (в процентах)
@@ -49,21 +50,31 @@ function drawRoom(disp, lin, tm, dt) {
   const L = (al) => `rgba(${hue},${al * a})`;
   const cabB = SC.cabB * H, topY = SC.topY * H, edgeY = SC.edgeY * H;
 
-  // Фартук: свет ленты падает сверху вниз и слабеет к столешнице
+  const gap0 = SC.cabs[0][1] * W, gap1 = SC.cabs[1][0] * W;
+  const m = { x: SC.mirror.x * W, y: SC.mirror.y * H, r: SC.mirror.r * H };
   x.fillStyle = '#0b0c0e'; x.fillRect(0, 0, W, H);
-  const bg = x.createLinearGradient(0, cabB, 0, topY);
-  bg.addColorStop(0, L(0.95)); bg.addColorStop(0.3, L(0.62)); bg.addColorStop(1, L(0.3));
-  x.fillStyle = bg; x.fillRect(0, cabB, W, topY - cabB);
-  // плитка «кабанчик»: швы рисуем поверх света
+  // Фартук под шкафами: свет ленты падает сверху вниз и слабеет к столешнице
+  SC.cabs.forEach(([c0, c1]) => {
+    const bg = x.createLinearGradient(0, cabB, 0, topY);
+    bg.addColorStop(0, L(0.95)); bg.addColorStop(0.3, L(0.62)); bg.addColorStop(1, L(0.3));
+    x.fillStyle = bg; x.fillRect(c0 * W, cabB, (c1 - c0) * W, topY - cabB);
+  });
+  // Открытая стена над мойкой: её освещает ореол вокруг зеркала
+  const hg = x.createRadialGradient(m.x, m.y, m.r * 0.9, m.x, m.y, m.r * 2.6);
+  hg.addColorStop(0, L(0.9)); hg.addColorStop(0.5, L(0.45)); hg.addColorStop(1, L(0.22));
+  x.fillStyle = hg; x.fillRect(gap0, 0, gap1 - gap0, topY);
+  // плитка «кабанчик» до потолка; под шкафами её потом закроют сами шкафы
   const rows = 6, th = (topY - cabB) / rows, tw = th * 2.4;
   x.strokeStyle = 'rgba(0,0,0,.32)'; x.lineWidth = Math.max(1, H * 0.003);
   x.beginPath();
-  for (let r = 0; r < rows; r++) {
-    const y = cabB + r * th;
-    x.moveTo(0, y); x.lineTo(W, y);
+  for (let r = 0; topY - r * th > -th; r++) {
+    const y = topY - (r + 1) * th;
+    x.moveTo(0, y + th); x.lineTo(W, y + th);
     for (let xx = r % 2 ? -tw / 2 : 0; xx < W; xx += tw) { x.moveTo(xx, y); x.lineTo(xx, y + th); }
   }
   x.stroke();
+
+  drawMirror(x, m, H, L, a);
 
   // Столешница (видна чуть сверху): световое пятно у стены
   const tg = x.createLinearGradient(0, topY, 0, edgeY);
@@ -71,11 +82,8 @@ function drawRoom(disp, lin, tm, dt) {
   x.fillStyle = '#18181a'; x.fillRect(0, topY, W, edgeY - topY);
   x.fillStyle = tg; x.fillRect(0, topY, W, edgeY - topY);
 
-  // Круглые зеркала и настенные смесители над чашами
-  SC.sinks.forEach((_, i) => {
-    drawMirror(x, W, H, i, L);
-    drawFaucet(x, W, H, i, L);
-  });
+  // Настенные смесители над чашами
+  SC.sinks.forEach((_, i) => drawFaucet(x, W, H, i, L));
 
   // Разделочная доска у стены и банка
   const bx = W * 0.1, bw = W * 0.1, bh = H * 0.22;
@@ -110,14 +118,23 @@ function drawRoom(disp, lin, tm, dt) {
 
   drawOven(x, W, H, tm);
 
-  // Верхние шкафы
-  x.fillStyle = '#131417'; x.fillRect(0, 0, W, cabB);
-  x.fillStyle = L(0.05); x.fillRect(0, 0, W, cabB);
-  x.fillStyle = '#08090a';
-  for (let i = 1; i < 6; i++) x.fillRect(W * i / 6 - 1, 0, 2, cabB);
-  x.fillStyle = '#2a2c30';
-  for (let i = 0; i < 6; i++) x.fillRect(W * (i + (i % 2 ? 0.1 : 0.88)) / 6 - 1, cabB - H * 0.12, Math.max(2, W * 0.005), H * 0.07);
-  x.fillStyle = '#1c1d21'; x.fillRect(0, cabB - H * 0.014, W, H * 0.014);
+  // Верхние шкафы только по бокам: над мойкой свободно
+  SC.cabs.forEach(([c0, c1]) => {
+    const x0 = c0 * W, cw = (c1 - c0) * W, doors = Math.max(1, Math.round((c1 - c0) / 0.2));
+    x.fillStyle = '#131417'; x.fillRect(x0, 0, cw, cabB);
+    x.fillStyle = L(0.05); x.fillRect(x0, 0, cw, cabB);
+    x.fillStyle = '#08090a';
+    for (let i = 1; i < doors; i++) x.fillRect(x0 + cw * i / doors - 1, 0, 2, cabB);
+    x.fillStyle = '#2a2c30';
+    for (let i = 0; i < doors; i++) {
+      const hx = x0 + cw * (i + (i % 2 ? 0.1 : 0.88)) / doors;  // ручки у стыка створок
+      x.fillRect(hx - 1, cabB - H * 0.12, Math.max(2, W * 0.005), H * 0.07);
+    }
+    x.fillStyle = '#1c1d21'; x.fillRect(x0, cabB - H * 0.014, cw, H * 0.014);
+  });
+  // торцы шкафов со стороны мойки ловят свет ореола
+  x.fillStyle = L(0.35);
+  x.fillRect(gap0 - 2, 0, 2, cabB); x.fillRect(gap1, 0, 2, cabB);
 
   if (scene.wires) drawWiring(x, W, H, lin, tm);
 
@@ -125,35 +142,40 @@ function drawRoom(disp, lin, tm, dt) {
   x.save();
   x.shadowColor = `rgba(${hue},${a})`; x.shadowBlur = H * 0.05 * a;
   x.fillStyle = a > 0.01 ? `rgba(${hue.map((v) => Math.round(v * 0.6 + 102))},${Math.min(1, a * 1.4)})` : '#1a1b1e';
-  x.fillRect(0, cabB, W, Math.max(2, H * 0.007));
+  SC.cabs.forEach(([c0, c1]) => x.fillRect(c0 * W, cabB, (c1 - c0) * W, Math.max(2, H * 0.007)));
   x.restore();
 }
 
-function drawMirror(x, W, H, i, L) {
-  const { x: mx, y: my, r } = faucetGeom(i, W, H).mirror;
+// Большое круглое зеркало: RGB-ореол сзади (та же лента по контуру), тёмное стекло, тонкая рама
+function drawMirror(x, m, H, L, a) {
+  const { x: mx, y: my, r } = m;
   x.save();
-  x.beginPath(); x.arc(mx, my, r, 0, Math.PI * 2); x.clip();
+  if (a > 0.01) {
+    const halo = x.createRadialGradient(mx, my, r * 0.96, mx, my, r * 1.35);
+    halo.addColorStop(0, L(1)); halo.addColorStop(0.35, L(0.55)); halo.addColorStop(1, L(0));
+    x.fillStyle = halo; x.beginPath(); x.arc(mx, my, r * 1.35, 0, Math.PI * 2); x.fill();
+  }
+  x.beginPath(); x.arc(mx, my, r, 0, Math.PI * 2); x.save(); x.clip();
   const g = x.createLinearGradient(mx, my - r, mx, my + r);
-  g.addColorStop(0, '#16191d'); g.addColorStop(1, '#0b0d10');
+  g.addColorStop(0, '#171a1e'); g.addColorStop(1, '#0b0d10');
   x.fillStyle = g; x.fillRect(mx - r, my - r, 2 * r, 2 * r);
-  // в зеркале отражается освещённая кухня за спиной: мягкий отсвет цвета ленты
+  // в зеркале — освещённая кухня за спиной: мягкий отсвет, линия столешницы и край проёма
   const rg = x.createRadialGradient(mx - r * 0.3, my + r * 0.25, r * 0.1, mx, my, r * 1.1);
-  rg.addColorStop(0, L(0.4)); rg.addColorStop(1, L(0.06));
+  rg.addColorStop(0, L(0.38)); rg.addColorStop(1, L(0.06));
   x.fillStyle = rg; x.fillRect(mx - r, my - r, 2 * r, 2 * r);
-  // отражение противоположной столешницы
-  x.fillStyle = L(0.25); x.fillRect(mx - r, my + r * 0.55, 2 * r, r * 0.08);
+  x.fillStyle = L(0.25); x.fillRect(mx - r, my + r * 0.52, 2 * r, r * 0.05);
+  x.fillStyle = 'rgba(0,0,0,.35)'; x.fillRect(mx + r * 0.35, my - r, r * 0.08, 2 * r);
   // диагональный блик на стекле
-  x.fillStyle = 'rgba(255,255,255,.08)';
+  x.fillStyle = 'rgba(255,255,255,.07)';
   x.beginPath();
   x.moveTo(mx - r, my - r * 0.05); x.lineTo(mx - r * 0.05, my - r);
-  x.lineTo(mx + r * 0.25, my - r); x.lineTo(mx - r, my + r * 0.25);
+  x.lineTo(mx + r * 0.3, my - r); x.lineTo(mx - r, my + r * 0.3);
   x.fill();
   x.restore();
-  // тонкая чёрная рама и отсвет ленты на её верхней кромке
-  x.lineWidth = Math.max(2, H * 0.009); x.strokeStyle = '#0a0a0b';
+  // тонкая чёрная рама
+  x.lineWidth = Math.max(2, H * 0.01); x.strokeStyle = '#0a0a0b';
   x.beginPath(); x.arc(mx, my, r, 0, Math.PI * 2); x.stroke();
-  x.lineWidth = Math.max(1, H * 0.003); x.strokeStyle = L(0.6);
-  x.beginPath(); x.arc(mx, my, r + H * 0.004, Math.PI * 1.1, Math.PI * 1.9); x.stroke();
+  x.restore();
 }
 
 function drawFaucet(x, W, H, i, L) {
@@ -333,12 +355,13 @@ function drawOven(x, W, H, tm) {
 // «Проводка»: полупрозрачные шкафы, коробка с электроникой, БП и кабели
 function drawWiring(x, W, H, lin, tm) {
   const cabB = SC.cabB * H;
-  const box = { x: 0.62 * W, y: 0.13 * H, w: 0.15 * W, h: 0.12 * H };
-  const psu = { x: 0.8 * W, y: 0.14 * H, w: 0.11 * W, h: 0.09 * H };
+  const box = { x: 0.2 * W, y: 0.15 * H, w: 0.15 * W, h: 0.11 * H };   // в левом шкафу
+  const psu = { x: 0.04 * W, y: 0.13 * H, w: 0.12 * W, h: 0.09 * H };
   const lw = Math.max(1.5, H * 0.005);
   const hot = (key) => now() - scene.flash[key] < 350;
   x.save();
-  x.fillStyle = 'rgba(4,5,7,.6)'; x.fillRect(0, 0, W, cabB);   // шкафы «на просвет»
+  x.fillStyle = 'rgba(4,5,7,.6)';   // шкафы «на просвет»
+  SC.cabs.forEach(([c0, c1]) => x.fillRect(c0 * W, 0, (c1 - c0) * W, cabB));
   x.lineCap = 'round'; x.lineJoin = 'round';
 
   const line = (pts, color, width, dash) => {
@@ -348,7 +371,7 @@ function drawWiring(x, W, H, lin, tm) {
   };
   // 230 В в розетку над шкафами и 12 В от БП к коробке
   line([[psu.x + psu.w / 2, psu.y], [psu.x + psu.w / 2, 0]], '#9aa0a8', lw);
-  line([[psu.x, psu.y + psu.h * 0.55], [box.x + box.w, psu.y + psu.h * 0.55]], '#E08A4F', lw * 1.3);
+  line([[psu.x + psu.w, psu.y + psu.h * 0.55], [box.x, psu.y + psu.h * 0.55]], '#E08A4F', lw * 1.3);
   // 4 провода к ленте: +12V и три канала, по каналам бежит ШИМ
   const colors = ['#E08A4F', '#E0413A', '#22A061', '#3B6FE0'];
   const off = -tm * 0.05;
@@ -364,12 +387,12 @@ function drawWiring(x, W, H, lin, tm) {
       x.lineDashOffset = 0;
     }
   });
-  // энкодер: кабель спрятан в стене (пунктир), подсвечивается, когда крутят
-  const kx = SC.knob[0] * W, ky = SC.knob[1] * H, turnY = 0.315 * H;  // между коробками и лентой
-  line([[kx, ky], [kx, turnY], [box.x + box.w * 0.9, turnY], [box.x + box.w * 0.9, box.y + box.h]], hot('enc') ? '#ff9a55' : 'rgba(200,205,210,.7)', lw, [lw * 2, lw * 2]);
+  // энкодер: кабель спрятан в стене над зеркалом (пунктир), подсвечивается, когда крутят
+  const kx = SC.knob[0] * W, ky = SC.knob[1] * H, topRun = 0.08 * H;
+  line([[kx, ky], [kx, topRun], [box.x + box.w * 0.9, topRun], [box.x + box.w * 0.9, box.y]], hot('enc') ? '#ff9a55' : 'rgba(200,205,210,.7)', lw, [lw * 2, lw * 2]);
   // ИК-приёмник на кромке шкафа
   const ix = SC.irX * W;
-  line([[ix, cabB - H * 0.01], [ix, box.y + box.h * 0.7], [box.x, box.y + box.h * 0.7]], hot('ir') ? '#ff5a6e' : 'rgba(200,205,210,.7)', lw);
+  line([[ix, cabB - H * 0.01], [ix, box.y + box.h * 0.7], [box.x + box.w, box.y + box.h * 0.7]], hot('ir') ? '#ff5a6e' : 'rgba(200,205,210,.7)', lw);
   x.fillStyle = '#15171a'; x.beginPath(); x.roundRect(ix - W * 0.012, cabB - H * 0.022, W * 0.024, H * 0.024, H * 0.006); x.fill();
   x.fillStyle = hot('ir') ? '#ff5a6e' : '#5a2a30'; x.beginPath(); x.arc(ix, cabB - H * 0.008, H * 0.007, 0, Math.PI * 2); x.fill();
 
@@ -384,9 +407,9 @@ function drawWiring(x, W, H, lin, tm) {
 
   // подписи
   const fs = Math.max(10, H * 0.028);
-  pill(x, t('wire.mains'), psu.x + psu.w / 2 - W * 0.012, H * 0.105, fs, 'right');  // ниже плашки с цветом
-  pill(x, t('wire.strip'), box.x + box.w + W * 0.012, box.y + box.h + H * 0.025, fs, 'left');
-  pill(x, t('wire.enc'), W * 0.975, ky + H * 0.135, fs, 'right');  // под ручкой энкодера
+  pill(x, t('wire.mains'), psu.x + psu.w / 2 + W * 0.012, H * 0.098, fs, 'left');  // под подписью ленты
+  pill(x, t('wire.strip'), box.x - W * 0.012, box.y + box.h + H * 0.04, fs, 'right');
+  pill(x, t('wire.enc'), W * 0.975, ky - H * 0.12, fs, 'right');  // над ручкой энкодера
   pill(x, t('wire.ir'), ix - W * 0.014, cabB + H * 0.045, fs, 'right');
   x.restore();
 }
