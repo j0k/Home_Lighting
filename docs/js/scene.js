@@ -1,4 +1,5 @@
-// Сцена кухни на canvas: шкафы, лента, фартук, двойная мойка с кранами и водой,
+// Сцена кухни на canvas: шкафы, лента, фартук, две чаши-«вазы» с настенными смесителями,
+// круглые зеркала, вода,
 // режим «Проводка» (где идут кабели) и осциллограф на затворах.
 
 // Геометрия в долях ширины/высоты холста. DOM-ручки (энкодер, краны) ставятся по этим же числам.
@@ -7,7 +8,7 @@ const SC = {
   topY: 0.68,              // задний край столешницы
   edgeY: 0.75,             // передняя кромка столешницы
   sinks: [0.5, 0.69],      // центры двух чаш
-  sinkW: 0.16,
+  bowlW: 0.13,             // ширина чаши-«вазы»
   knob: [0.88, 0.5],       // энкодер на фартуке (совпадает с CSS .knob.scene)
   irX: 0.6,                // ИК-приёмник на кромке шкафа
 };
@@ -19,9 +20,15 @@ const scene = {
 
 function faucetGeom(i, W, H) {
   const sx = SC.sinks[i] * W;
-  const bx = sx - 0.03 * W;                               // основание смесителя за чашей
-  const fy = (SC.cabB + (SC.topY - SC.cabB) * 0.32) * H;  // верх «гусака»
-  return { sx, bx, fy, ex: bx + 0.045 * W, ey: fy + 0.07 * H, hx: bx - 0.024 * W, hy: (SC.topY - 0.075) * H };
+  const bodyX = sx - 0.052 * W;  // настенный смеситель слева за чашей, как на фото
+  return {
+    sx, bodyX, bowlW: SC.bowlW * W,
+    rimY: (SC.topY - 0.075) * H,                  // верхний край чаши
+    bodyTop: 0.49 * H, bodyBot: 0.525 * H,        // корпус смесителя на стене
+    ex: sx - 0.004 * W, ey: 0.548 * H,            // конец излива над центром чаши
+    hx: bodyX, hy: 0.476 * H,                     // рычаг сверху корпуса (DOM-ручка)
+    mirror: { x: sx, y: 0.428 * H, r: 0.056 * H }, // круглое зеркало над чашей
+  };
 }
 // Где на сцене стоят DOM-ручки кранов (в процентах)
 function tapPosition(i) {
@@ -64,12 +71,10 @@ function drawRoom(disp, lin, tm, dt) {
   x.fillStyle = '#18181a'; x.fillRect(0, topY, W, edgeY - topY);
   x.fillStyle = tg; x.fillRect(0, topY, W, edgeY - topY);
 
-  // Двойная мойка: две чаши
-  const sw = SC.sinkW * W;
-  SC.sinks.forEach((s) => {
-    x.fillStyle = '#060607';
-    x.beginPath(); x.roundRect(s * W - sw / 2, topY + H * 0.012, sw, edgeY - topY - H * 0.024, H * 0.012); x.fill();
-    x.strokeStyle = L(0.45); x.lineWidth = Math.max(1, H * 0.003); x.stroke();
+  // Круглые зеркала и настенные смесители над чашами
+  SC.sinks.forEach((_, i) => {
+    drawMirror(x, W, H, i, L);
+    drawFaucet(x, W, H, i, L);
   });
 
   // Разделочная доска у стены и банка
@@ -82,11 +87,10 @@ function drawRoom(disp, lin, tm, dt) {
   x.fillStyle = '#0d0e10'; x.fillRect(jx, topY + H * 0.025 - jh, jw, jh);
   x.fillStyle = L(0.6); x.fillRect(jx, topY + H * 0.025 - jh, jw, Math.max(2, H * 0.008));
 
-  // Смесители и вода
+  // Чаши-«вазы» на столешнице и вода из кранов
   scene.taps.forEach((tap, i) => {
     tap.flow += (tap.open - tap.flow) * Math.min(1, dt / 140);  // напор меняется плавно
-    drawFaucet(x, W, H, i, L);
-    if (tap.flow > 0.01) drawWater(x, W, H, i, tap.flow, hue, a, tm);
+    drawBowl(x, W, H, i, hue, a, tm, tap.flow);
   });
 
   // Передняя кромка столешницы
@@ -103,6 +107,8 @@ function drawRoom(disp, lin, tm, dt) {
   for (let i = 1; i < 5; i++) x.fillRect(W * i / 5 - 1, lowY, 2, H - lowY);
   x.fillStyle = '#2a2c30';
   for (let i = 0; i < 5; i++) x.fillRect(W * (i + 0.5) / 5 - W * 0.025, lowY + H * 0.03, W * 0.05, Math.max(2, H * 0.008));
+
+  drawOven(x, W, H, tm);
 
   // Верхние шкафы
   x.fillStyle = '#131417'; x.fillRect(0, 0, W, cabB);
@@ -123,46 +129,98 @@ function drawRoom(disp, lin, tm, dt) {
   x.restore();
 }
 
-function drawFaucet(x, W, H, i, L) {
-  const g = faucetGeom(i, W, H), topY = SC.topY * H, fw = H * 0.016;
+function drawMirror(x, W, H, i, L) {
+  const { x: mx, y: my, r } = faucetGeom(i, W, H).mirror;
   x.save();
-  x.lineCap = 'round';
-  // рычаг-держатель ручки: от корпуса к DOM-ручке
-  x.strokeStyle = '#0a0a0b'; x.lineWidth = fw * 0.7;
-  x.beginPath(); x.moveTo(g.bx, g.hy); x.lineTo(g.hx, g.hy); x.stroke();
-  // «гусак»
+  x.beginPath(); x.arc(mx, my, r, 0, Math.PI * 2); x.clip();
+  const g = x.createLinearGradient(mx, my - r, mx, my + r);
+  g.addColorStop(0, '#16191d'); g.addColorStop(1, '#0b0d10');
+  x.fillStyle = g; x.fillRect(mx - r, my - r, 2 * r, 2 * r);
+  // в зеркале отражается освещённая кухня за спиной: мягкий отсвет цвета ленты
+  const rg = x.createRadialGradient(mx - r * 0.3, my + r * 0.25, r * 0.1, mx, my, r * 1.1);
+  rg.addColorStop(0, L(0.4)); rg.addColorStop(1, L(0.06));
+  x.fillStyle = rg; x.fillRect(mx - r, my - r, 2 * r, 2 * r);
+  // отражение противоположной столешницы
+  x.fillStyle = L(0.25); x.fillRect(mx - r, my + r * 0.55, 2 * r, r * 0.08);
+  // диагональный блик на стекле
+  x.fillStyle = 'rgba(255,255,255,.08)';
   x.beginPath();
-  x.moveTo(g.bx, topY + H * 0.01); x.lineTo(g.bx, g.fy + H * 0.04);
-  x.quadraticCurveTo(g.bx, g.fy, g.bx + W * 0.022, g.fy);
-  x.quadraticCurveTo(g.ex, g.fy, g.ex, g.fy + H * 0.04);
-  x.lineTo(g.ex, g.ey);
-  x.strokeStyle = '#0a0a0b'; x.lineWidth = fw; x.stroke();
-  x.strokeStyle = L(0.7); x.lineWidth = fw * 0.25; x.stroke();  // блик от ленты сверху
+  x.moveTo(mx - r, my - r * 0.05); x.lineTo(mx - r * 0.05, my - r);
+  x.lineTo(mx + r * 0.25, my - r); x.lineTo(mx - r, my + r * 0.25);
+  x.fill();
+  x.restore();
+  // тонкая чёрная рама и отсвет ленты на её верхней кромке
+  x.lineWidth = Math.max(2, H * 0.009); x.strokeStyle = '#0a0a0b';
+  x.beginPath(); x.arc(mx, my, r, 0, Math.PI * 2); x.stroke();
+  x.lineWidth = Math.max(1, H * 0.003); x.strokeStyle = L(0.6);
+  x.beginPath(); x.arc(mx, my, r + H * 0.004, Math.PI * 1.1, Math.PI * 1.9); x.stroke();
+}
+
+function drawFaucet(x, W, H, i, L) {
+  const g = faucetGeom(i, W, H), w = W * 0.011, cy = (g.bodyTop + g.bodyBot) / 2;
+  x.save();
+  x.fillStyle = '#0a0a0b';
+  x.beginPath(); x.arc(g.bodyX, cy, w * 0.95, 0, Math.PI * 2); x.fill();          // розетка на стене
+  x.beginPath(); x.roundRect(g.bodyX - w / 2, g.bodyTop, w, g.bodyBot - g.bodyTop, w * 0.3); x.fill();  // корпус
+  // излив: из стены вперёд и дугой вниз над чашей
+  x.lineCap = 'round'; x.strokeStyle = '#0a0a0b'; x.lineWidth = w * 0.7;
+  x.beginPath(); x.moveTo(g.bodyX, g.bodyBot - w * 0.4); x.quadraticCurveTo(g.ex, g.bodyBot - w * 0.4, g.ex, g.ey); x.stroke();
+  // блики от ленты сверху
+  x.strokeStyle = L(0.6); x.lineWidth = w * 0.18;
+  x.beginPath(); x.moveTo(g.bodyX, g.bodyBot - w * 0.65); x.quadraticCurveTo(g.ex, g.bodyBot - w * 0.65, g.ex - w * 0.25, g.ey - w); x.stroke();
+  x.fillStyle = L(0.5); x.fillRect(g.bodyX - w / 2, g.bodyTop, w, Math.max(1, H * 0.003));
   x.restore();
 }
 
-function drawWater(x, W, H, i, f, hue, a, tm) {
-  const g = faucetGeom(i, W, H);
-  const y0 = g.ey, y1 = SC.topY * H + H * 0.035, len = y1 - y0;
-  const w = W * (0.002 + 0.006 * f);
-  // Вода почти бесцветная, но отражает свет ленты
+// Белая керамическая чаша на столешнице: свет ленты падает сверху, бока в тени
+function drawBowl(x, W, H, i, hue, a, tm, flow) {
+  const g = faucetGeom(i, W, H), topY = SC.topY * H;
+  const bw = g.bowlW, cx = g.sx, rimY = g.rimY, rimH = H * 0.03, baseY = topY + H * 0.022;
+  const ceramic = (al) => `rgb(${hue.map((v) => Math.round(24 + v * 0.9 * a * al))})`;
+  x.save();
+  x.fillStyle = 'rgba(0,0,0,.35)';  // тень на столешнице
+  x.beginPath(); x.ellipse(cx, baseY, bw * 0.42, H * 0.012, 0, 0, Math.PI * 2); x.fill();
+  // корпус
+  x.beginPath();
+  x.moveTo(cx - bw / 2, rimY);
+  x.bezierCurveTo(cx - bw / 2, rimY + (baseY - rimY) * 0.9, cx - bw * 0.3, baseY, cx, baseY);
+  x.bezierCurveTo(cx + bw * 0.3, baseY, cx + bw / 2, rimY + (baseY - rimY) * 0.9, cx + bw / 2, rimY);
+  x.closePath();
+  const bg = x.createLinearGradient(0, rimY, 0, baseY);
+  bg.addColorStop(0, ceramic(0.95)); bg.addColorStop(1, ceramic(0.45));
+  x.fillStyle = bg; x.fill();
+  const sg = x.createLinearGradient(cx - bw / 2, 0, cx + bw / 2, 0);
+  sg.addColorStop(0, 'rgba(0,0,0,.35)'); sg.addColorStop(0.3, 'rgba(0,0,0,0)');
+  sg.addColorStop(0.75, 'rgba(0,0,0,0)'); sg.addColorStop(1, 'rgba(0,0,0,.4)');
+  x.fillStyle = sg; x.fill();
+  // проём: ближняя стенка изнутри в тени, дальняя освещена
+  x.beginPath(); x.ellipse(cx, rimY, bw / 2 * 0.94, rimH / 2, 0, 0, Math.PI * 2);
+  const ig = x.createLinearGradient(0, rimY - rimH / 2, 0, rimY + rimH / 2);
+  ig.addColorStop(0, ceramic(0.3)); ig.addColorStop(1, ceramic(0.75));
+  x.fillStyle = ig; x.fill();
+  if (flow > 0.01) drawWater(x, W, H, g, flow, hue, a, tm, rimH);
+  // передняя кромка
+  x.lineWidth = Math.max(1, H * 0.004); x.strokeStyle = ceramic(1);
+  x.beginPath(); x.ellipse(cx, rimY, bw / 2, rimH / 2, 0, 0, Math.PI); x.stroke();
+  x.restore();
+}
+
+function drawWater(x, W, H, g, f, hue, a, tm, rimH) {
+  const y0 = g.ey, y1 = g.rimY + rimH * 0.15, len = y1 - y0;
+  const w = W * (0.002 + 0.005 * f);
+  // вода почти бесцветная, но отражает свет ленты
   const col = [0, 1, 2].map((k) => Math.round(170 + 60 * (1 - a) + (hue[k] - 170) * a * 0.55));
   x.save();
   // струя с лёгким колыханием
   x.beginPath();
-  const seg = 14;
-  for (let s = 0; s <= seg; s++) {
+  const seg = 10;
+  const edge = (s, side) => {
     const y = y0 + len * s / seg;
     const wob = Math.sin(y * 0.08 + tm * 0.018) * w * 0.18 * (s / seg);
-    const ww = w * (1 - 0.25 * s / seg);
-    if (s === 0) x.moveTo(g.ex - ww / 2 + wob, y); else x.lineTo(g.ex - ww / 2 + wob, y);
-  }
-  for (let s = seg; s >= 0; s--) {
-    const y = y0 + len * s / seg;
-    const wob = Math.sin(y * 0.08 + tm * 0.018) * w * 0.18 * (s / seg);
-    const ww = w * (1 - 0.25 * s / seg);
-    x.lineTo(g.ex + ww / 2 + wob, y);
-  }
+    return [g.ex + side * w * (1 - 0.25 * s / seg) / 2 + wob, y];
+  };
+  for (let s = 0; s <= seg; s++) { const [px, py] = edge(s, -1); if (s === 0) x.moveTo(px, py); else x.lineTo(px, py); }
+  for (let s = seg; s >= 0; s--) { const [px, py] = edge(s, 1); x.lineTo(px, py); }
   x.closePath();
   const sg = x.createLinearGradient(g.ex - w, 0, g.ex + w, 0);
   sg.addColorStop(0, `rgba(${col},${0.25 + 0.3 * f})`);
@@ -171,17 +229,104 @@ function drawWater(x, W, H, i, f, hue, a, tm) {
   x.fillStyle = sg; x.fill();
   // бегущие вниз блики
   x.fillStyle = `rgba(255,255,255,${0.35 * f})`;
-  for (let k = 0; k < 5; k++) {
-    const p = ((tm * 0.0016 * (0.6 + f) + k / 5) % 1);
-    x.fillRect(g.ex - w * 0.15, y0 + p * len, w * 0.3, len * 0.05);
+  for (let k = 0; k < 4; k++) {
+    const p = (tm * 0.0018 * (0.6 + f) + k / 4) % 1;
+    x.fillRect(g.ex - w * 0.15, y0 + p * len, w * 0.3, len * 0.08);
   }
-  // круги и брызги в чаше
+  // круги на воде внутри чаши
+  x.beginPath(); x.ellipse(g.sx, g.rimY, g.bowlW / 2 * 0.92, rimH / 2 * 0.9, 0, 0, Math.PI * 2); x.clip();
   for (let k = 0; k < 3; k++) {
-    const p = ((tm * 0.0012 + k / 3) % 1);
-    x.strokeStyle = `rgba(${col},${(1 - p) * 0.5 * f})`;
+    const p = (tm * 0.0012 + k / 3) % 1;
+    x.strokeStyle = `rgba(${col},${(1 - p) * 0.55 * f})`;
     x.lineWidth = Math.max(1, H * 0.003);
-    x.beginPath(); x.ellipse(g.ex, y1, W * 0.012 + p * W * 0.03 * (0.5 + f), H * 0.006 + p * H * 0.01, 0, 0, Math.PI * 2); x.stroke();
+    x.beginPath(); x.ellipse(g.ex, y1, W * 0.008 + p * W * 0.03 * (0.5 + f), rimH * (0.12 + p * 0.3), 0, 0, Math.PI * 2); x.stroke();
   }
+  x.restore();
+}
+
+// Духовка во второй секции нижних шкафов: через тонированное стекло видно индейку
+function drawOven(x, W, H, tm) {
+  const lowY = (SC.edgeY + 0.03) * H;
+  const ox = 0.2 * W + 2, ow = 0.2 * W - 4, oy = lowY + H * 0.004, oh = H - oy - H * 0.004;
+  const mono = getComputedStyle(document.documentElement).getPropertyValue('--mono');
+  x.save();
+  // корпус из тёмной нержавейки
+  const body = x.createLinearGradient(0, oy, 0, oy + oh);
+  body.addColorStop(0, '#27292d'); body.addColorStop(1, '#151619');
+  x.fillStyle = body; x.beginPath(); x.roundRect(ox, oy, ow, oh, H * 0.006); x.fill();
+  // панель: дисплей температуры и две ручки
+  x.fillStyle = '#050607'; x.beginPath(); x.roundRect(ox + ow * 0.36, oy + oh * 0.035, ow * 0.28, oh * 0.12, H * 0.004); x.fill();
+  x.fillStyle = '#ff9a3c'; x.textAlign = 'center'; x.textBaseline = 'middle';
+  x.font = `600 ${Math.max(8, oh * 0.085)}px ${mono}`;
+  x.fillText('180°', ox + ow * 0.5, oy + oh * 0.097);
+  [0.15, 0.85].forEach((k) => {
+    x.fillStyle = '#3a3d42'; x.beginPath(); x.arc(ox + ow * k, oy + oh * 0.095, oh * 0.05, 0, Math.PI * 2); x.fill();
+    x.fillStyle = '#8b9096'; x.fillRect(ox + ow * k - 1, oy + oh * 0.05, 2, oh * 0.04);
+  });
+  // ручка дверцы
+  x.fillStyle = '#6f747b'; x.beginPath(); x.roundRect(ox + ow * 0.12, oy + oh * 0.18, ow * 0.76, oh * 0.03, oh * 0.015); x.fill();
+
+  // стекло дверцы
+  const gx = ox + ow * 0.08, gy = oy + oh * 0.26, gw = ow * 0.84, gh = oh * 0.64;
+  x.beginPath(); x.roundRect(gx, gy, gw, gh, H * 0.01); x.save(); x.clip();
+  // камера: тёплый свет лампы
+  const cav = x.createLinearGradient(0, gy, 0, gy + gh);
+  cav.addColorStop(0, '#6b3310'); cav.addColorStop(1, '#241006');
+  x.fillStyle = cav; x.fillRect(gx, gy, gw, gh);
+  const lamp = x.createRadialGradient(gx + gw * 0.5, gy, gw * 0.05, gx + gw * 0.5, gy + gh * 0.3, gw * 0.7);
+  lamp.addColorStop(0, 'rgba(255,190,110,.55)'); lamp.addColorStop(1, 'rgba(255,150,60,0)');
+  x.fillStyle = lamp; x.fillRect(gx, gy, gw, gh);
+  // верхний ТЭН мерцает
+  const glow = 0.65 + 0.25 * Math.sin(tm * 0.004);
+  x.strokeStyle = `rgba(255,${Math.round(90 + 40 * glow)},40,${glow})`; x.lineWidth = Math.max(1.5, gh * 0.025);
+  x.beginPath();
+  for (let k = 0; k <= 8; k++) { const px = gx + gw * (0.1 + 0.1 * k), py = gy + gh * (k % 2 ? 0.1 : 0.05); if (k) x.lineTo(px, py); else x.moveTo(px, py); }
+  x.stroke();
+  // решётка и противень
+  x.strokeStyle = 'rgba(160,160,160,.5)'; x.lineWidth = Math.max(1, gh * 0.015);
+  x.beginPath(); x.moveTo(gx, gy + gh * 0.8); x.lineTo(gx + gw, gy + gh * 0.8); x.stroke();
+  x.fillStyle = '#1a1512'; x.beginPath(); x.roundRect(gx + gw * 0.14, gy + gh * 0.72, gw * 0.72, gh * 0.09, gh * 0.03); x.fill();
+
+  // индейка: румяная тушка, две ножки с косточками, блеск жира
+  const cx = gx + gw * 0.5, cy = gy + gh * 0.55, rx = gw * 0.2, ry = gh * 0.2;
+  const tb = x.createRadialGradient(cx - rx * 0.25, cy - ry * 0.4, rx * 0.1, cx, cy, rx * 1.1);
+  tb.addColorStop(0, '#f0a857'); tb.addColorStop(0.45, '#b8621f'); tb.addColorStop(1, '#4e2308');
+  x.fillStyle = tb; x.beginPath(); x.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); x.fill();
+  x.fillStyle = 'rgba(255,240,210,.35)';
+  x.beginPath(); x.ellipse(cx - rx * 0.3, cy - ry * 0.45, rx * 0.28, ry * 0.12, -0.3, 0, Math.PI * 2); x.fill();
+  // ножки спереди по бокам, косточки торчат вверх-наружу
+  const leg = (dir) => {
+    x.save();
+    x.translate(cx + dir * rx * 0.72, cy + ry * 0.25);
+    x.rotate(dir * 0.7);
+    const lg = x.createRadialGradient(-dir * rx * 0.08, -ry * 0.1, 1, 0, 0, rx * 0.55);
+    lg.addColorStop(0, '#e4964a'); lg.addColorStop(1, '#6a3310');
+    x.fillStyle = lg; x.beginPath(); x.ellipse(0, 0, rx * 0.3, ry * 0.62, 0, 0, Math.PI * 2); x.fill();
+    x.fillStyle = '#f3e6cc';
+    x.fillRect(-rx * 0.045, -ry * 1.05, rx * 0.09, ry * 0.5);
+    x.beginPath(); x.arc(-rx * 0.06, -ry * 1.08, rx * 0.065, 0, Math.PI * 2); x.arc(rx * 0.06, -ry * 1.08, rx * 0.065, 0, Math.PI * 2); x.fill();
+    x.restore();
+  };
+  leg(-1); leg(1);
+  // горячий воздух над птицей
+  x.strokeStyle = 'rgba(255,220,180,.12)'; x.lineWidth = Math.max(1, gh * 0.012);
+  for (let k = 0; k < 3; k++) {
+    const bx = cx + (k - 1) * rx * 0.6;
+    x.beginPath();
+    for (let s = 0; s <= 10; s++) {
+      const py = cy - ry * 1.1 - s * gh * 0.035;
+      const px = bx + Math.sin(s * 0.9 + tm * 0.004 + k) * gw * 0.015;
+      if (s) x.lineTo(px, py); else x.moveTo(px, py);
+    }
+    x.stroke();
+  }
+  // тонированное стекло: видно, но приглушённо, плюс диагональный блик
+  x.fillStyle = 'rgba(8,6,5,.3)'; x.fillRect(gx, gy, gw, gh);
+  x.fillStyle = 'rgba(255,255,255,.06)';
+  x.beginPath(); x.moveTo(gx, gy + gh * 0.55); x.lineTo(gx + gw * 0.45, gy); x.lineTo(gx + gw * 0.62, gy); x.lineTo(gx, gy + gh * 0.8); x.fill();
+  x.restore();
+  x.strokeStyle = '#0b0c0e'; x.lineWidth = Math.max(2, H * 0.006);
+  x.beginPath(); x.roundRect(gx, gy, gw, gh, H * 0.01); x.stroke();
   x.restore();
 }
 

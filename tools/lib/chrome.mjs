@@ -80,7 +80,8 @@ export async function launch({ width = 1400, height = 900, scale = 1 } = {}) {
     await evaluate('document.fonts.ready.then(() => true)');
   }
   async function screenshot(path, clip) {
-    const r = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: !clip, ...(clip ? { clip: { ...clip, scale: 1 } } : {}) });
+    // captureBeyondViewport: иначе всё, что ниже окна, выходит пустым
+    const r = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true, ...(clip ? { clip: { ...clip, scale: 1 } } : {}) });
     writeFileSync(path, Buffer.from(r.data, 'base64'));
   }
   async function close() {
