@@ -53,16 +53,26 @@ function drawRoom(disp, lin, tm, dt) {
   const gap0 = SC.cabs[0][1] * W, gap1 = SC.cabs[1][0] * W;
   const m = { x: SC.mirror.x * W, y: SC.mirror.y * H, r: SC.mirror.r * H };
   x.fillStyle = '#0b0c0e'; x.fillRect(0, 0, W, H);
-  // Фартук под шкафами: свет ленты падает сверху вниз и слабеет к столешнице
-  SC.cabs.forEach(([c0, c1]) => {
-    const bg = x.createLinearGradient(0, cabB, 0, topY);
-    bg.addColorStop(0, L(0.95)); bg.addColorStop(0.3, L(0.62)); bg.addColorStop(1, L(0.3));
-    x.fillStyle = bg; x.fillRect(c0 * W, cabB, (c1 - c0) * W, topY - cabB);
-  });
-  // Открытая стена над мойкой: её освещает ореол вокруг зеркала
-  const hg = x.createRadialGradient(m.x, m.y, m.r * 0.9, m.x, m.y, m.r * 2.6);
-  hg.addColorStop(0, L(0.9)); hg.addColorStop(0.5, L(0.45)); hg.addColorStop(1, L(0.22));
-  x.fillStyle = hg; x.fillRect(gap0, 0, gap1 - gap0, topY);
+  // Свет на стене — два слоя, смешанные плавной маской по ширине (без швов у краёв проёма):
+  // лента под шкафами светит сверху вниз и затухает внутрь проёма,
+  // ореол зеркала освещает проём и мягко растекается под шкафы.
+  const g0 = SC.cabs[0][1], g1 = SC.cabs[1][0];
+  const smooth = (e0, e1, v) => { const k = clamp((v - e0) / (e1 - e0), 0, 1); return k * k * (3 - 2 * k); };
+  const inGap = (fx) => Math.min(fx - g0, g1 - fx);  // >0 внутри проёма, <0 под шкафами
+  const strip = x.createLinearGradient(0, cabB, 0, topY);
+  strip.addColorStop(0, L(0.95)); strip.addColorStop(0.3, L(0.62)); strip.addColorStop(1, L(0.3));
+  const hg = x.createRadialGradient(m.x, m.y, m.r * 0.9, m.x, m.y, m.r * 2.8);
+  hg.addColorStop(0, L(0.9)); hg.addColorStop(0.5, L(0.45)); hg.addColorStop(1, L(0.2));
+  const SLICES = Math.ceil(W / 4), sw = W / SLICES;  // срез ~4 px: маска без видимых ступенек
+  for (let i = 0; i < SLICES; i++) {
+    // целые пиксели без перекрытия, иначе на стыках срезов проступают полоски
+    const d = inGap((i + 0.5) / SLICES), sx0 = Math.round(i * sw), sw0 = Math.round((i + 1) * sw) - sx0;
+    x.globalAlpha = 1 - 0.8 * smooth(-0.02, 0.1, d);          // лента: 1 под шкафами → 0.2 в глубине проёма
+    x.fillStyle = strip; x.fillRect(sx0, cabB, sw0, topY - cabB);
+    x.globalAlpha = smooth(-0.1, 0.04, d);                    // ореол: 0 далеко под шкафами → 1 в проёме
+    x.fillStyle = hg; x.fillRect(sx0, 0, sw0, topY);
+  }
+  x.globalAlpha = 1;
   // плитка «кабанчик» до потолка; под шкафами её потом закроют сами шкафы
   const rows = 6, th = (topY - cabB) / rows, tw = th * 2.4;
   x.strokeStyle = 'rgba(0,0,0,.32)'; x.lineWidth = Math.max(1, H * 0.003);
